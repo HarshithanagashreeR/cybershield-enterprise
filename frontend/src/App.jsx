@@ -177,6 +177,228 @@ function App() {
     }
   };
 
+  const generateTxtReportClient = (scanId) => {
+    const scan = scans.find(s => s.id === scanId) || fallbackScans.find(s => s.id === scanId);
+    if (!scan) return;
+    
+    const result = scan.results || scan;
+    const checks = result.checks || {};
+    const ports = checks.ports || { total_open: 0, open_ports: [] };
+    const ssl = checks.ssl || {};
+    const headers = checks.headers || {};
+    const dns = checks.dns || {};
+    
+    let report = `======================================================================
+               CYBERSHIELD ENTERPRISE SECURITY PLATFORM REPORT
+======================================================================
+
+Target Host:      ${scan.target}
+Scan Reference:   ${scan.id}
+Scan Time:        ${scan.timestamp}
+Overall Score:    ${scan.overall_score}/100
+Risk Profile:     ${scan.overall_severity} ${scan.overall_emoji || ''}
+
+----------------------------------------------------------------------
+1. NETWORK PORTS SECURITY ASSESSMENT
+----------------------------------------------------------------------
+Total Open Ports: ${ports.total_open || 0}
+Port Status Details:
+`;
+
+    if (ports.open_ports && ports.open_ports.length > 0) {
+      ports.open_ports.forEach(port => {
+        const bannerInfo = port.banner ? ` (Banner: ${port.banner})` : "";
+        report += `  - Port ${port.port} (${port.service}): Severity [${port.severity}] - ${port.desc}${bannerInfo}\n`;
+      });
+    } else {
+      report += "  ✅ No open common ports detected. Excellent network posture.\n";
+    }
+
+    report += `
+----------------------------------------------------------------------
+2. SSL/TLS CERTIFICATE SECURITY ASSESSMENT
+----------------------------------------------------------------------
+Protocol Version:  ${ssl.protocol || 'N/A'}
+Cipher Suite:      ${ssl.cipher || 'N/A'}
+Certificate Subject: ${ssl.subject || 'N/A'}
+Certificate Issuer:  ${ssl.issuer || 'N/A'}
+Days to Expiration:  ${ssl.days_left !== undefined ? ssl.days_left : 'N/A'}
+
+Security Issues / Audit Findings:
+`;
+
+    if (ssl.issues && ssl.issues.length > 0) {
+      ssl.issues.forEach(issue => {
+        report += `  ${issue.icon || '⚠️'} ${issue.issue} [${issue.severity}]\n`;
+      });
+    } else {
+      report += "  ✅ SSL/TLS configuration follows standard security practices.\n";
+    }
+
+    report += `
+----------------------------------------------------------------------
+3. HTTP SECURITY HEADERS AUDIT
+----------------------------------------------------------------------
+Grade/Score: ${headers.score || '0%'}
+
+Configured Headers:
+`;
+
+    if (headers.present_headers && headers.present_headers.length > 0) {
+      headers.present_headers.forEach(h => {
+        report += `  ✅ ${h.header}: ${h.value.substring(0, 50)}...\n`;
+      });
+    } else {
+      report += "  (None detected)\n";
+    }
+
+    report += "\nMissing Security Headers:\n";
+    if (headers.missing_headers && headers.missing_headers.length > 0) {
+      headers.missing_headers.forEach(h => {
+        report += `  ❌ ${h.header} (${h.points} pts) - ${h.description}\n`;
+      });
+    } else {
+      report += "  ✅ No missing security headers! Fully hardened HTTP setup.\n";
+    }
+
+    report += `
+----------------------------------------------------------------------
+4. DNS ZONE INFORMATION
+----------------------------------------------------------------------
+Configured Records:
+`;
+
+    if (dns.present_records && dns.present_records.length > 0) {
+      dns.present_records.forEach(r => {
+        report += `  ✅ ${r.type}: ${r.values.join(', ')}\n`;
+      });
+    } else {
+      report += "  (None detected)\n";
+    }
+
+    report += "\nDNS Vulnerability Issues:\n";
+    const dnsIssues = dns.issues || [];
+    if (dnsIssues.length > 0) {
+      dnsIssues.forEach(issue => {
+        report += `  ${issue.icon || '⚠️'} ${issue.issue} [${issue.severity}]\n`;
+      });
+    } else {
+      report += "  ✅ DNS configuration follows standard security practices.\n";
+    }
+
+    report += `
+======================================================================
+5. STRATEGIC REMEDIATION PLAN
+======================================================================
+`;
+    let remedIndex = 1;
+    if (ports.open_ports && ports.open_ports.length > 0) {
+      report += `${remedIndex}. Port Hardening:\n`;
+      ports.open_ports.forEach(port => {
+        if (port.severity === 'CRITICAL' || port.severity === 'HIGH') {
+          report += `   - [ACTION REQUIRED] Close or firewall port ${port.port} (${port.service}) immediately.\n`;
+        } else {
+          report += `   - [RECOMMENDED] Review firewall settings for port ${port.port} (${port.service}).\n`;
+        }
+      });
+      remedIndex += 1;
+    }
+
+    const sslSeverity = ssl.severity || 'OK';
+    if (['CRITICAL', 'HIGH', 'MEDIUM'].includes(sslSeverity) && ssl.issues) {
+      report += `${remedIndex}. Cryptographic Upgrade:\n`;
+      ssl.issues.forEach(issue => {
+        if (['CRITICAL', 'HIGH', 'MEDIUM'].includes(issue.severity)) {
+          report += `   - [ACTION REQUIRED] Resolve issue: ${issue.issue}\n`;
+        }
+      });
+      remedIndex += 1;
+    }
+
+    if (headers.missing_headers && headers.missing_headers.length > 0) {
+      report += `${remedIndex}. Security Headers Implementation:\n`;
+      headers.missing_headers.forEach(h => {
+        report += `   - Implement header: ${h.header} - ${h.description}\n`;
+      });
+      remedIndex += 1;
+    }
+
+    if (dnsIssues.length > 0) {
+      report += `${remedIndex}. DNS Configuration Settings:\n`;
+      dnsIssues.forEach(issue => {
+        report += `   - ${issue.issue}\n`;
+      });
+      remedIndex += 1;
+    }
+
+    report += `
+----------------------------------------------------------------------
+Report Generated on ${new Date().toLocaleString()}
+======================================================================`;
+
+    const blob = new Blob([report], { type: 'text/plain;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `CyberShield_Assessment_Report_${scan.target}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const generateCsvInventoryClient = () => {
+    let csvContent = "Scan ID,Target Host,Timestamp,Status,Overall Score,Threat Rating\n";
+    const scanList = scans.length > 0 ? scans : fallbackScans;
+    scanList.forEach(s => {
+      csvContent += `"${s.id}","${s.target}","${s.timestamp}","${s.status}",${s.overall_score},"${s.overall_severity}"\n`;
+    });
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "CyberShield_Scans_Inventory.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleDownloadTxtReport = async (scanId) => {
+    try {
+      const res = await fetch(`/api/scans/${scanId}/report`);
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      const scanObj = scans.find(s => s.id === scanId) || fallbackScans.find(s => s.id === scanId);
+      const targetName = scanObj ? scanObj.target : scanId;
+      link.download = `CyberShield_Assessment_Report_${targetName}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      generateTxtReportClient(scanId);
+    }
+  };
+
+  const handleDownloadCsvInventory = async () => {
+    try {
+      const res = await fetch('/api/reports/export/csv');
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "CyberShield_Scans_Inventory.csv";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      generateCsvInventoryClient();
+    }
+  };
+
   const fetchHistory = async () => {
     try {
       const res = await fetch('/api/scans');
@@ -774,9 +996,13 @@ function App() {
                             <td className="font-extrabold" style={{ color: getScoreColor(s.overall_score) }}>{s.overall_score}%</td>
                             <td className="text-right" onClick={e => e.stopPropagation()}>
                               <div className="flex justify-end gap-2">
-                                <a href={`/api/scans/${s.id}/report`} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white">
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); handleDownloadTxtReport(s.id); }} 
+                                  className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-white"
+                                  title="Download Report"
+                                >
                                   <Download className="w-4 h-4" />
-                                </a>
+                                </button>
                                 <button onClick={e => handleDeleteScan(e, s.id)} className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-red-400">
                                   <Trash2 className="w-4 h-4" />
                                 </button>
@@ -1307,7 +1533,8 @@ function App() {
                     <select 
                       onChange={e => {
                         if (e.target.value) {
-                          window.open(`/api/scans/${e.target.value}/report`);
+                          handleDownloadTxtReport(e.target.value);
+                          e.target.value = "";
                         }
                       }}
                       className="w-full bg-slate-900 border border-cyan-500/20 text-xs text-white p-2.5 rounded-lg outline-none"
@@ -1327,13 +1554,12 @@ function App() {
                   <p className="text-xs text-slate-400">Download a tabular list of scanned targets, threat ratings, overall security scores, and run timestamps.</p>
                   
                   <div className="pt-4">
-                    <a 
-                      href="/api/reports/export/csv"
-                      className="btn-cyber w-full py-3 text-center no-underline inline-block"
-                      download
+                    <button 
+                      onClick={handleDownloadCsvInventory}
+                      className="btn-cyber w-full py-3 text-center inline-block cursor-pointer"
                     >
                       Download CSV Inventory
-                    </a>
+                    </button>
                   </div>
                 </div>
               </div>
