@@ -1,0 +1,21 @@
+# Virtual Environment
+venv/
+ENV/
+env/
+.env
+
+# Node Dependencies & Build Outputs
+node_modules/
+dist/
+.vite-cache/
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+
+# Databases & Runtime Logs
+*.db
+*.log
+__pycache__/
+*.pyc
+.system_generated/
